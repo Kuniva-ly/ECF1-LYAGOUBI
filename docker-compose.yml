@@ -22,7 +22,7 @@ services:
       - tp-network
   # Serveur de base de données PostgreSQL
   postgres:
-    image: postgres:latest
+    image: postgres:15
     container_name: tp-postgres
     ports:
       - "5432:5432"

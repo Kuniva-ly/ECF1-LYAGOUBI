@@ -1,4 +1,5 @@
 -- a executer avec tpuser
+DROP ROLE IF EXISTS admin;
 CREATE ROLE admin LOGIN PASSWORD 'admin';
 GRANT CONNECT ON DATABASE tpdatabase TO admin;
 GRANT USAGE ON SCHEMA public TO admin;
