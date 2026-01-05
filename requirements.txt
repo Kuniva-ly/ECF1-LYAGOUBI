@@ -1,0 +1,12 @@
+requests
+beautifulsoup4
+lxml
+fake-useragent
+tenacity
+structlog
+python-dotenv
+pandas
+minio
+psycopg2-binary
+tqdm
+openpyxl

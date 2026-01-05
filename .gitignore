@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Virtualenv
+.venv/
+venv/
+
+# Environment
+.env
+
+# Data
+data/*.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
