@@ -13,4 +13,4 @@ COPY README.md ./
 
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python", "-m", "src.pipeline", "--source", "books", "--pages", "1", "--no-minio"]
+CMD ["python", "-m", "src.pipeline", "--source", "all", "--pages", "1", "--query", "Lille", "--partners-file", "data/partenaire_librairies.xlsx", "--geocode-partners"]

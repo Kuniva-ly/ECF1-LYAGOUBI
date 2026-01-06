@@ -1,6 +1,3 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
 docker compose up -d
 
 python -m src.pipeline --source books --pages 1

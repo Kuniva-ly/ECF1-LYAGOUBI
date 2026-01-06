@@ -51,8 +51,7 @@ class ScraperConfig:
 @dataclass
 class APIAdresseConfig:
     base_url: str = "https://api-adresse.data.gouv.fr/search/"
-    rate_limit: int = 50  # requêtes/seconde
-
+    rate_limit: int = 50 
 # Instances globales
 minio_config = MinIOConfig()
 postgres_config = PostgresConfig()
