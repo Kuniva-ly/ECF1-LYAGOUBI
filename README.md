@@ -5,7 +5,7 @@
 1) Creer un environnement virtuel et installer les dependances :
 ```bash
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
