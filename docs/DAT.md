@@ -76,3 +76,70 @@ Mesures :
 Suppression :
 - Suppression de la ligne partenaire dans PostgreSQL.
 - Suppression des exports associes dans MinIO si necessaire.
+
+## 6) Structure du projet
+
+```
+.
+├── .env
+├── .gitignore
+├── Dockerfile
+├── README.md
+├── docker-compose.yml
+├── requirements.txt
+├── run_project.ps1
+├── ECF-DataPulse-MultiSources.md
+├── config/
+│   ├── __init__.py
+│   └── settings.py
+├── data/
+│   └── partenaire_librairies.xlsx
+├── docs/
+│   ├── DAT.md
+│   └── RGPD_CONFORMITE.md
+├── sql/
+│   ├── analyses.sql
+│   └── create_role.sql
+└── src/
+    ├── __init__.py
+    ├── pipeline.py
+    ├── scrapers/
+    │   ├── __init__.py
+    │   ├── api_adresse_scraper.py
+    │   ├── book_scraper.py
+    │   └── quotes_scraper.py
+    └── storage/
+        ├── __init__.py
+        ├── minio_client.py
+        └── postgres_client.py
+```
+
+## 7) Schema global (architecture ETL)
+
+```
+Sources
+  - Books (scraping)
+  - Quotes (scraping)
+  - API Adresse
+  - Excel partenaires
+        |
+        v
+   Pipeline ETL (Python)
+   - extraction
+   - transformation
+   - pseudonymisation (RGPD)
+   - deduplication
+        |
+        +--> MinIO (fichiers)
+        |     - images livres
+        |     - exports CSV/JSON
+        |
+        +--> PostgreSQL (analytique)
+              - books
+              - quotes
+              - api_addresses
+              - partners
+                    |
+                    v
+                Requetes SQL / Analyses
+```
