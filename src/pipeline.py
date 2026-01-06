@@ -63,7 +63,13 @@ class MultiSourcePipeline:
         self._seen_quotes = set()
         self._seen_addresses = set()
         self._seen_partners = set()
-        self.export_data = {
+        self.export_bronze = {
+            "books": [],
+            "quotes": [],
+            "api": [],
+            "partners": [],
+        }
+        self.export_silver = {
             "books": [],
             "quotes": [],
             "api": [],
@@ -279,6 +285,26 @@ class MultiSourcePipeline:
             "longitude": longitude,
         }
 
+    def _sanitize_partner_raw(self, row: dict) -> dict:
+        raw_postal = row.get("code_postal", "")
+        code_postal = "" if pd.isna(raw_postal) else self._normalize_text(str(raw_postal))
+        ca_annuel = row.get("ca_annuel")
+        ca_annuel = None if pd.isna(ca_annuel) else float(ca_annuel)
+        date_part = row.get("date_partenariat")
+        date_part = date_part.isoformat() if hasattr(date_part, "isoformat") else date_part
+        return {
+            "nom_librairie": self._normalize_text(row.get("nom_librairie", "")),
+            "adresse": self._normalize_text(row.get("adresse", "")),
+            "code_postal": code_postal,
+            "ville": self._normalize_text(row.get("ville", "")),
+            "contact_nom_hash": self._hash_pii(self._normalize_text(row.get("contact_nom", ""))),
+            "contact_email_hash": self._hash_pii(self._normalize_text(row.get("contact_email", ""))),
+            "contact_telephone_hash": self._hash_pii(self._normalize_text(row.get("contact_telephone", ""))),
+            "ca_annuel": ca_annuel,
+            "date_partenariat": date_part,
+            "specialite": self._normalize_text(row.get("specialite", "")),
+        }
+
     def _load_book(self, data: dict) -> None:
         self.pg.execute(
             """
@@ -414,7 +440,7 @@ class MultiSourcePipeline:
 
     def _generate_image_path(self, product: "Book") -> str:
         category = self._normalize_text(product.category).lower() or "other"
-        return f"{category}/{product.sku}.jpg"
+        return f"images/{category}/{product.sku}.jpg"
 
     def _run_books(self, max_pages: int, show_progress: bool, load_sql: bool) -> None:
         self._ensure_books()
@@ -426,6 +452,7 @@ class MultiSourcePipeline:
             if book.sku in self._seen_books:
                 continue
             self._seen_books.add(book.sku)
+            self.export_bronze["books"].append(book.to_dict())
             data = self._transform_book(book)
             if not data:
                 continue
@@ -441,7 +468,7 @@ class MultiSourcePipeline:
             if load_sql:
                 self._load_book(data)
                 self.stats["books_loaded"] += 1
-            self.export_data["books"].append(data)
+            self.export_silver["books"].append(data)
 
     def _run_quotes(self, max_pages: int, show_progress: bool, load_sql: bool) -> None:
         self._ensure_quotes()
@@ -453,6 +480,7 @@ class MultiSourcePipeline:
             if quote.id in self._seen_quotes:
                 continue
             self._seen_quotes.add(quote.id)
+            self.export_bronze["quotes"].append(quote.to_dict())
             data = self._transform_quote(quote)
             if not data:
                 continue
@@ -460,7 +488,7 @@ class MultiSourcePipeline:
             if load_sql:
                 self._load_quote(data)
                 self.stats["quotes_loaded"] += 1
-            self.export_data["quotes"].append(data)
+            self.export_silver["quotes"].append(data)
 
     def _run_api(self, query: str, limit: int, show_progress: bool, load_sql: bool) -> None:
         self._ensure_api()
@@ -479,11 +507,14 @@ class MultiSourcePipeline:
             if data["id"] in self._seen_addresses:
                 continue
             self._seen_addresses.add(data["id"])
+            raw = result.to_dict()
+            raw["query"] = self._normalize_text(query)
+            self.export_bronze["api"].append(raw)
             self.stats["api_addresses_scraped"] += 1
             if load_sql:
                 self._load_address(data)
                 self.stats["api_addresses_loaded"] += 1
-            self.export_data["api"].append(data)
+            self.export_silver["api"].append(data)
 
     def _run_partners(self, filepath: str, geocode: bool, show_progress: bool, load_sql: bool) -> None:
         if not filepath or not os.path.exists(filepath):
@@ -519,6 +550,7 @@ class MultiSourcePipeline:
                     if results:
                         latitude = results[0].latitude
                         longitude = results[0].longitude
+            self.export_bronze["partners"].append(self._sanitize_partner_raw(row))
             data = self._transform_partner(row, latitude, longitude)
             if not data:
                 continue
@@ -528,20 +560,56 @@ class MultiSourcePipeline:
             if load_sql:
                 self._load_partner(data)
                 self.stats["partners_loaded"] += 1
-            self.export_data["partners"].append(data)
+            self.export_silver["partners"].append(data)
 
-    def _export_to_minio(self, export_prefix: str = "export") -> None:
+    def _build_gold(self) -> dict:
+        gold = {}
+        if self.export_silver["books"]:
+            df_books = pd.DataFrame(self.export_silver["books"])
+            gold["books_by_category"] = (
+                df_books.groupby("category", dropna=False)
+                .agg(books_count=("sku", "count"), avg_price_eur=("price_eur", "mean"))
+                .reset_index()
+                .round({"avg_price_eur": 2})
+                .to_dict(orient="records")
+            )
+        if self.export_silver["quotes"]:
+            df_quotes = pd.DataFrame(self.export_silver["quotes"])
+            gold["quotes_by_author"] = (
+                df_quotes.groupby("author", dropna=False)
+                .size()
+                .reset_index(name="quotes_count")
+                .to_dict(orient="records")
+            )
+        if self.export_silver["api"]:
+            df_api = pd.DataFrame(self.export_silver["api"])
+            gold["api_by_city"] = (
+                df_api.groupby("city", dropna=False)
+                .size()
+                .reset_index(name="results_count")
+                .to_dict(orient="records")
+            )
+        if self.export_silver["partners"]:
+            df_partners = pd.DataFrame(self.export_silver["partners"])
+            gold["partners_by_ville"] = (
+                df_partners.groupby("ville", dropna=False)
+                .size()
+                .reset_index(name="partners_count")
+                .to_dict(orient="records")
+            )
+        return gold
+
+    def _export_group(self, dataset: dict, prefix: str, timestamp: str, bucket_name: str) -> None:
         if not self.minio:
             return
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        for key, records in self.export_data.items():
+        for key, records in dataset.items():
             if not records:
                 continue
             df = pd.DataFrame(records)
-            csv_name = f"{export_prefix}_{key}_{timestamp}.csv"
-            json_name = f"{export_prefix}_{key}_{timestamp}.json"
-            self.minio.upload_csv(df.to_csv(index=False), csv_name)
-            self.minio.upload_json(records, json_name)
+            csv_name = f"{prefix}_{key}_{timestamp}.csv"
+            json_name = f"{prefix}_{key}_{timestamp}.json"
+            self.minio.upload_csv(df.to_csv(index=False), csv_name, bucket_name=bucket_name)
+            self.minio.upload_json(records, json_name, bucket_name=bucket_name)
 
     def run(
         self,
@@ -581,7 +649,12 @@ class MultiSourcePipeline:
                     load_sql=load_sql,
                 )
             if export_minio and minio_enabled:
-                self._export_to_minio()
+                timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+                from config import minio_config
+                self._export_group(self.export_bronze, "bronze", timestamp, minio_config.bucket_bronze)
+                self._export_group(self.export_silver, "silver", timestamp, minio_config.bucket_silver)
+                gold = self._build_gold()
+                self._export_group(gold, "gold", timestamp, minio_config.bucket_gold)
         except Exception as e:
             logger.error("pipeline_failed", error=str(e))
             self.stats["errors"].append(str(e))

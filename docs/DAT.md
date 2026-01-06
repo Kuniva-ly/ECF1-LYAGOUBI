@@ -42,7 +42,9 @@ Convention de nommage :
 - Colonnes explicites (ex: `price_eur`, `minio_image_ref`).
 
 Couches :
-- Fichiers : MinIO (images, exports CSV/JSON).
+- Bronze (MinIO) : donnees brutes JSON + images.
+- Silver (MinIO) : donnees nettoyees/normalisees (CSV/JSON).
+- Gold (MinIO) : agregats pour analyses.
 - Analytique : PostgreSQL (donnees transformees).
 
 ## 4) Modelisation des donnees

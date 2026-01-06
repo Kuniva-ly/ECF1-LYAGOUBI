@@ -61,8 +61,9 @@ class MinIOStorage:
         - data-exports : Exports CSV, JSON, Parquet
         """
         buckets = [
-            minio_config.bucket_images,
-            minio_config.bucket_exports
+            minio_config.bucket_bronze,
+            minio_config.bucket_silver,
+            minio_config.bucket_gold,
         ]
         
         for bucket in buckets:
@@ -82,7 +83,7 @@ class MinIOStorage:
         content_type: str = "image/jpeg"
     ) -> Optional[str]:
         """
-        Upload une image dans le bucket d'images.
+        Upload une image dans le bucket bronze.
         
         Args:
             image_data: Contenu binaire de l'image
@@ -99,14 +100,14 @@ class MinIOStorage:
         """
         try:
             self.client.put_object(
-                bucket_name=minio_config.bucket_images,
+                bucket_name=minio_config.bucket_bronze,
                 object_name=object_name,
                 data=io.BytesIO(image_data),
                 length=len(image_data),
                 content_type=content_type
             )
             
-            uri = f"minio://{minio_config.bucket_images}/{object_name}"
+            uri = f"minio://{minio_config.bucket_bronze}/{object_name}"
             logger.info("image_uploaded", 
                        object_name=object_name, 
                        size_kb=len(image_data) // 1024)
@@ -128,7 +129,7 @@ class MinIOStorage:
         """
         try:
             response = self.client.get_object(
-                bucket_name=minio_config.bucket_images,
+                bucket_name=minio_config.bucket_bronze,
                 object_name=object_name
             )
             data = response.read()
@@ -142,7 +143,7 @@ class MinIOStorage:
     def delete_image(self, object_name: str) -> bool:
         """Supprime une image."""
         try:
-            self.client.remove_object(minio_config.bucket_images, object_name)
+            self.client.remove_object(minio_config.bucket_bronze, object_name)
             logger.info("image_deleted", object_name=object_name)
             return True
         except S3Error as e:
@@ -161,7 +162,7 @@ class MinIOStorage:
         """
         try:
             objects = self.client.list_objects(
-                bucket_name=minio_config.bucket_images,
+                bucket_name=minio_config.bucket_bronze,
                 prefix=prefix,
                 recursive=True
             )
@@ -183,7 +184,8 @@ class MinIOStorage:
         self,
         data: bytes,
         filename: str,
-        content_type: str = "application/octet-stream"
+        content_type: str = "application/octet-stream",
+        bucket_name: Optional[str] = None,
     ) -> Optional[str]:
         """
         Upload un fichier d'export (CSV, JSON, Parquet).
@@ -197,15 +199,16 @@ class MinIOStorage:
             URI MinIO ou None
         """
         try:
+            bucket_name = bucket_name or minio_config.bucket_silver
             self.client.put_object(
-                bucket_name=minio_config.bucket_exports,
+                bucket_name=bucket_name,
                 object_name=filename,
                 data=io.BytesIO(data),
                 length=len(data),
                 content_type=content_type
             )
             
-            uri = f"minio://{minio_config.bucket_exports}/{filename}"
+            uri = f"minio://{bucket_name}/{filename}"
             logger.info("export_uploaded", filename=filename, size_kb=len(data) // 1024)
             return uri
             
@@ -213,18 +216,19 @@ class MinIOStorage:
             logger.error("export_upload_failed", filename=filename, error=str(e))
             return None
     
-    def upload_csv(self, csv_content: str, filename: str) -> Optional[str]:
+    def upload_csv(self, csv_content: str, filename: str, bucket_name: Optional[str] = None) -> Optional[str]:
         """Upload un fichier CSV."""
         return self.upload_export(
             csv_content.encode("utf-8"),
             filename,
-            "text/csv"
+            "text/csv",
+            bucket_name
         )
     
-    def upload_json(self, data: dict, filename: str) -> Optional[str]:
+    def upload_json(self, data: dict, filename: str, bucket_name: Optional[str] = None) -> Optional[str]:
         """Upload un fichier JSON."""
         json_bytes = json.dumps(data, indent=2, ensure_ascii=False, default=str).encode("utf-8")
-        return self.upload_export(json_bytes, filename, "application/json")
+        return self.upload_export(json_bytes, filename, "application/json", bucket_name)
     
     def get_export(self, filename: str) -> Optional[bytes]:
         """Télécharge un fichier d'export."""
@@ -238,12 +242,9 @@ class MinIOStorage:
             return None
     
     def list_exports(self) -> list[dict]:
-        """Liste tous les exports."""
+        """Liste tous les exports (silver)."""
         try:
-            objects = self.client.list_objects(
-                minio_config.bucket_exports,
-                recursive=True
-            )
+            objects = self.client.list_objects(minio_config.bucket_silver, recursive=True)
             return [
                 {"name": obj.object_name, "size": obj.size, "modified": obj.last_modified}
                 for obj in objects
@@ -270,7 +271,7 @@ class MinIOStorage:
         Returns:
             URL présignée ou None
         """
-        bucket = bucket or minio_config.bucket_images
+        bucket = bucket or minio_config.bucket_bronze
         
         try:
             url = self.client.presigned_get_object(
@@ -294,8 +295,11 @@ class MinIOStorage:
         """
         stats = {}
         
-        for bucket_name in [minio_config.bucket_images, 
-                           minio_config.bucket_exports]:
+        for bucket_name in [
+            minio_config.bucket_bronze,
+            minio_config.bucket_silver,
+            minio_config.bucket_gold,
+        ]:
             try:
                 objects = list(self.client.list_objects(bucket_name, recursive=True))
                 stats[bucket_name] = {

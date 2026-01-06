@@ -23,8 +23,9 @@ class MinIOConfig:
     secure: bool = os.getenv("MINIO_SECURE", "false").lower() == "true"
     bucket_raw: str = "raw-data"
     bucket_processed: str = "processed-data"
-    bucket_images: str = "product-images"
-    bucket_exports: str = "data-exports"
+    bucket_bronze: str = "bronze"
+    bucket_silver: str = "silver"
+    bucket_gold: str = "gold"
 
 @dataclass
 class PostgresConfig:
